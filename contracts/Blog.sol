@@ -31,7 +31,7 @@ contract Blog {
         owner = msg.sender;
     }
 
-    function updateNmae(string memory _name) public {
+    function updateName(string memory _name) public {
         require(msg.sender == owner);
         name = _name;
     }
@@ -50,8 +50,8 @@ contract Blog {
         post = hashToPost[hash];
         return post;
     }
-
-    function createPost(string memory title, string memory hash) public onlyOwner {         //Private blog
+    //Private blog due to onlyOwner modifier
+    function createPost(string memory title, string memory hash) public onlyOwner {         
         _postIds.increment();
         uint postId = _postIds.current();
         Post storage post = idToPost[postId];
@@ -60,9 +60,29 @@ contract Blog {
         post.published = true;
         post.content = hash;
         hashToPost[hash] = post;
-        emit PostCreated (postId, title, hash)
-        
+        emit PostCreated (postId, title, hash);
     }
 
+    function updatePost(uint postId, string memory title, string memory hash, bool published) public onlyOwner {
+        Post storage post = idToPost[postId];
+        post.title = title;
+        post.published = published;
+        post.content = hash;
+        idToPost[postId] = post;
+        hashToPost[hash] = post;
+        emit PostUpdate (postId, title, hash, post.published);
+    }
+
+    function fetchPosts() public view returns (Post[] memory) {
+        uint itemCount = _postIds.current();
+
+        Post[] memory posts = new Post[](itemCount);
+        for (uint i = 0; i < itemCount; i++) {
+            uint currentId = i + 1;
+            Post storage currentItem = idToPost[currentId];
+            posts[i] = currentItem;
+        }
+        return posts;
+    }
     
 }
