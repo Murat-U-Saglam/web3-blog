@@ -1,51 +1,116 @@
-/* pages/post/[id].js */
-import ReactMarkdown from 'react-markdown'
-import { useContext } from 'react'
+/* pages/edit-post/[id].js */
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import Link from 'next/link'
+import ReactMarkdown from 'react-markdown'
 import { css } from '@emotion/css'
+import dynamic from 'next/dynamic'
 import { ethers } from 'ethers'
-import { AccountContext } from '../../context'
+import { create } from 'ipfs-http-client'
 
-/* import contract and owner addresses */
 import {
-    contractAddress, ownerAddress
+    contractAddress
 } from '../../config'
 import Blog from '../../artifacts/contracts/Blog.sol/Blog.json'
 
 const ipfsURI = 'https://ipfs.io/ipfs/'
+const client = create('https://ipfs.infura.io:5001/api/v0')
 
-export default function Post({ post }) {
-    const account = useContext(AccountContext)
+const SimpleMDE = dynamic(
+    () => import('react-simplemde-editor'),
+    { ssr: false }
+)
+
+export default function Post() {
+    const [post, setPost] = useState(null)
+    const [editing, setEditing] = useState(true)
     const router = useRouter()
     const { id } = router.query
 
-    if (router.isFallback) {
-        return <div>Loading...</div>
+    useEffect(() => {
+        fetchPost()
+    }, [id])
+    async function fetchPost() {
+        /* we first fetch the individual post by ipfs hash from the network */
+        if (!id) return
+        let provider
+        if (process.env.NEXT_PUBLIC_ENVIRONMENT === 'local') {
+            provider = new ethers.providers.JsonRpcProvider()
+        } else if (process.env.NEXT_PUBLIC_ENVIRONMENT === 'testnet') {
+            provider = new ethers.providers.JsonRpcProvider('https://rpc-mumbai.matic.today')
+        } else {
+            provider = new ethers.providers.JsonRpcProvider('https://polygon-rpc.com/')
+        }
+        const contract = new ethers.Contract(contractAddress, Blog.abi, provider)
+        const val = await contract.fetchPost(id)
+        const postId = val[0].toNumber()
+
+        /* next we fetch the IPFS metadata from the network */
+        const ipfsUrl = `${ipfsURI}/${id}`
+        const response = await fetch(ipfsUrl)
+        const data = await response.json()
+        if (data.coverImage) {
+            let coverImagePath = `${ipfsURI}/${data.coverImage}`
+            data.coverImagePath = coverImagePath
+        }
+        /* finally we append the post ID to the post data */
+        /* we need this ID to make updates to the post */
+        data.id = postId;
+        setPost(data)
     }
 
+    async function savePostToIpfs() {
+        try {
+            const added = await client.add(JSON.stringify(post))
+            return added.path
+        } catch (err) {
+            console.log('error: ', err)
+        }
+    }
+
+    async function updatePost() {
+        const hash = await savePostToIpfs()
+        const provider = new ethers.providers.Web3Provider(window.ethereum)
+        const signer = provider.getSigner()
+        const contract = new ethers.Contract(contractAddress, Blog.abi, signer)
+        await contract.updatePost(post.id, post.title, hash, true)
+        router.push('/')
+    }
+
+    if (!post) return null
+
     return (
-        <div>
+        <div className={container}>
             {
-                post && (
-                    <div className={container}>
+                /* editing state will allow the user to toggle between */
+                /*  a markdown editor and a markdown renderer */
+            }
+            {
+                editing && (
+                    <div>
+                        <input
+                            onChange={e => setPost({ ...post, title: e.target.value })}
+                            name='title'
+                            placeholder='Give it a title ...'
+                            value={post.title}
+                            className={titleStyle}
+                        />
+                        <SimpleMDE
+                            className={mdEditor}
+                            placeholder="What's on your mind?"
+                            value={post.content}
+                            onChange={value => setPost({ ...post, content: value })}
+                        />
+                        <button className={button} onClick={updatePost}>Update post</button>
+                    </div>
+                )
+            }
+            {
+                !editing && (
+                    <div>
                         {
-                            /* if the owner is the user, render an edit button */
-                            ownerAddress === account && (
-                                <div className={editPost}>
-                                    <Link href={`/edit-post/${id}`}>
-                                        <a>
-                                            Edit post
-                                        </a>
-                                    </Link>
-                                </div>
-                            )
-                        }
-                        {
-                            /* if the post has a cover image, render it */
-                            post.coverImage && (
+                            post.coverImagePath && (
                                 <img
-                                    src={post.coverImage}
+                                    src={post.coverImagePath}
                                     className={coverImageStyle}
                                 />
                             )
@@ -57,57 +122,38 @@ export default function Post({ post }) {
                     </div>
                 )
             }
+            <button className={button} onClick={() => setEditing(editing ? false : true)}>{editing ? 'View post' : 'Edit post'}</button>
         </div>
     )
 }
 
-export async function getStaticPaths() {
-    /* here we fetch the posts from the network */
-    let provider
-    if (process.env.ENVIRONMENT === 'local') {
-        provider = new ethers.providers.JsonRpcProvider()
-    } else if (process.env.ENVIRONMENT === 'testnet') {
-        provider = new ethers.providers.JsonRpcProvider('https://rpc-mumbai.matic.today')
-    } else {
-        provider = new ethers.providers.JsonRpcProvider('https://polygon-rpc.com/')
-    }
+const button = css`
+  background-color: #fafafa;
+  outline: none;
+  border: none;
+  border-radius: 15px;
+  cursor: pointer;
+  margin-right: 10px;
+  margin-top: 15px;
+  font-size: 18px;
+  padding: 16px 70px;
+  box-shadow: 7px 7px rgba(0, 0, 0, .1);
+`
 
-    const contract = new ethers.Contract(contractAddress, Blog.abi, provider)
-    const data = await contract.fetchPosts()
+const titleStyle = css`
+  margin-top: 40px;
+  border: none;
+  outline: none;
+  background-color: inherit;
+  font-size: 44px;
+  font-weight: 600;
+  &::placeholder {
+    color: #999999;
+  }
+`
 
-    /* then we map over the posts and create a params object passing */
-    /* the id property to getStaticProps which will run for ever post */
-    /* in the array and generate a new page */
-    const paths = data.map(d => ({ params: { id: d[2] } }))
-
-    return {
-        paths,
-        fallback: true
-    }
-}
-
-export async function getStaticProps({ params }) {
-    /* using the id property passed in through the params object */
-    /* we can us it to fetch the data from IPFS and pass the */
-    /* post data into the page as props */
-    const { id } = params
-    const ipfsUrl = `${ipfsURI}/${id}`
-    const response = await fetch(ipfsUrl)
-    const data = await response.json()
-    if (data.coverImage) {
-        let coverImage = `${ipfsURI}/${data.coverImage}`
-        data.coverImage = coverImage
-    }
-
-    return {
-        props: {
-            post: data
-        },
-    }
-}
-
-const editPost = css`
-  margin: 20px 0px;
+const mdEditor = css`
+  margin-top: 40px;
 `
 
 const coverImageStyle = css`
@@ -127,3 +173,4 @@ const contentContainer = css`
   & img {
     max-width: 900px;
   }
+`
