@@ -91,7 +91,7 @@ function App({ Component, pageProps }) {
           }
         </div>
       </nav>
-      <div className={container}> /* main container */
+      <div className={container}> {/* This is the main content container */}
         <AccountContext.Provider value={account}>
           <Component {...pageProps} connect={connect} />
         </AccountContext.Provider>
