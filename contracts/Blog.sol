@@ -23,7 +23,7 @@ contract Blog {
     mapping(string => Post) private hashToPost;
 
     event PostCreated(uint256 id, string title, string hash);
-    event PostUpdate(uint256 id, string title, string hash, bool published);
+    event PostUpdated(uint256 id, string title, string hash, bool published);
 
     constructor(string memory _name) {
         console.log("Deploying Blog with name: ", _name);
@@ -83,7 +83,7 @@ contract Blog {
         post.content = hash;
         idToPost[postId] = post;
         hashToPost[hash] = post;
-        emit PostUpdate(postId, title, hash, post.published);
+        emit PostUpdated(postId, title, hash, post.published);
     }
 
     function fetchPosts() public view returns (Post[] memory) {
